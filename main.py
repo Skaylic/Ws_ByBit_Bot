@@ -12,20 +12,23 @@ load_dotenv()
 
 logger = setup_logger(os.getenv("BOT_NAME"))
 
+bot = Bot()
 
 
-if __name__ == "__main__":
+def main():
     try:
-        asyncio.run(Bot().run())
+        asyncio.run(bot.run())
     except KeyboardInterrupt:
         logger.info('KeyboardInterrupt')
     except ConnectionClosedError:
         logger.error("ConnectionClosedError")
-        sleep(20)
-        asyncio.run(Bot().run())
+        sleep(60)
+        main()
     except TimeoutError:
         logger.error("ConnectionClosedError")
-        sleep(20)
-        asyncio.run(Bot().run())
+        sleep(60)
+        main()
 
 
+if __name__ == "__main__":
+    main()
