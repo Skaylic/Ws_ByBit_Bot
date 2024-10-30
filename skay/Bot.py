@@ -49,20 +49,20 @@ class Bot(ByBit):
         if sz != 0:
             order['qty'] = sz
         _ord = Orders(
-            ordId = order.get('orderId'),
-            cTime = strftime('%Y%m%d%H%M%S'),
-            sz = order.get('qty'),
-            px = order.get('avgPrice'),
-            profit = order.get('profit'),
-            fee = order.get('cumExecFee'),
-            grid_px = order.get('grid_px'),
-            side = order.get('side'),
-            status = order.get('orderStatus'),
-            symbol = order.get('symbol'),
-            orderType = order.get('orderType'),
-            marketUnit = order.get('marketUnit'),
-            orderLinkId = order.get('orderLinkId'),
-            is_active = active,
+            ordId=order.get('orderId'),
+            cTime=str(strftime('%Y%m%d%H%M%S')),
+            sz=order.get('qty'),
+            px=order.get('avgPrice'),
+            profit=order.get('profit'),
+            fee=order.get('cumExecFee'),
+            grid_px=order.get('grid_px'),
+            side=order.get('side'),
+            status=order.get('orderStatus'),
+            symbol=order.get('symbol'),
+            orderType=order.get('orderType'),
+            marketUnit=order.get('marketUnit'),
+            orderLinkId=order.get('orderLinkId'),
+            is_active=active,
         )
         db.add(_ord)
         db.commit()
@@ -118,5 +118,5 @@ class Bot(ByBit):
 
     async def run(self):
         self.logger.info("Bot is running!")
-        await asyncio.gather(self.ws_public(), self.ws_private(), self.check())
+        await asyncio.gather(self.check(), self.ws_public(), self.ws_private())
 
