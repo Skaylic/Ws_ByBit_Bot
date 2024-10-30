@@ -73,6 +73,8 @@ class ByBit:
                         self.balance[self.quoteCoin] = float(i['walletBalance'])
                     elif i['coin'] == self.baseCoin:
                         self.balance[self.baseCoin] = float(i['walletBalance'])
+            elif msg['success']:
+                continue
             else:
                 pp(msg)
 
