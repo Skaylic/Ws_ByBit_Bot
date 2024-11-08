@@ -1,9 +1,6 @@
-from email.policy import default
 from typing import Dict, Any
 from sqlalchemy import Column, String, Integer, Float, Boolean
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy import Table
 
@@ -50,6 +47,7 @@ class Orders(Base):
     status = Column(String)
     symbol = Column(String)
     orderType = Column(String)
+    feeCurrency = Column(String)
     marketUnit = Column(String)
     orderLinkId = Column(String)
     is_active = Column(Boolean, default=True)
