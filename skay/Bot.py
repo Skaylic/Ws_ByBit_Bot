@@ -1,11 +1,12 @@
-import asyncio
 import os
+import re
 from time import sleep, strftime
-from pprint import pp
-
+import logging
 from skay.ByBit import ByBit
 from skay.DataBase import DataBase
 from skay.Models import Orders
+
+logger = logging.getLogger("SkayBot")
 
 db = DataBase().set_db()
 
@@ -14,14 +15,14 @@ class Bot(ByBit):
 
     def __init__(self):
         super(Bot, self).__init__()
-        self.qty = float(os.getenv("QTY"))
         self.min = float(os.getenv("MIN"))
         self.max = float(os.getenv("MAX"))
-        self.percent = float(os.getenv('PERCENT'))
+        self.percent = float(os.getenv("PERCENT"))
         self.grid = []
         self.grid_px = 0.0
-        self.to_buy = 0
         self.position_px = 0.0
+        self.to_buy = 0
+        self.close_kline = 0
 
     def grid_positions(self):
         x = self.min
@@ -34,8 +35,9 @@ class Bot(ByBit):
         return self
 
     def is_position(self):
-        _ord = (db.query(Orders).filter(Orders.side == 'Buy', Orders.profit < self.kline['close'], Orders.is_active == True)
-                .order_by(Orders.px).first())
+        _ord = (
+            db.query(Orders).filter(Orders.side == 'Buy', Orders.profit < self.kline['close'], Orders.is_active == True)
+            .order_by(Orders.px).first())
         if _ord:
             return _ord
         _ord = db.query(Orders).filter(Orders.side == 'Buy', Orders.grid_px == self.grid_px,
@@ -45,17 +47,16 @@ class Bot(ByBit):
         else:
             return False
 
-    def save_order(self, order, sz=0, active=True):
-        if sz != 0:
-            order['qty'] = sz
+    def save_order(self, order, active=True):
         _ord = Orders(
             ordId=order.get('orderId'),
-            cTime=str(strftime('%Y%m%d%H%M%S')),
-            sz=order.get('qty'),
+            cTime=strftime('%Y%m%d%H%M%S'),
+            sz=order.get('cumExecValue'),
             px=order.get('avgPrice'),
             profit=order.get('profit'),
             fee=order.get('cumExecFee'),
             grid_px=order.get('grid_px'),
+            feeCurrency=order.get('feeCurrency'),
             side=order.get('side'),
             status=order.get('orderStatus'),
             symbol=order.get('symbol'),
@@ -66,57 +67,63 @@ class Bot(ByBit):
         )
         db.add(_ord)
         db.commit()
-        self.logger.info(_ord)
+        logger.info(_ord)
         return _ord
 
-    async def check(self):
-        if not self.instruments:
+    def check(self):
+        if len(self.instruments) < 1:
             self.getInstruments()
-        if not self.balance:
+            self.min_qty = float(self.instruments['lotSizeFilter']['minOrderQty'])
+        while self.kline and self.qty <= self.min_qty * self.kline['close']:
+            self.qty = self.qty + .5
+        if len(self.balance) < 1:
             self.getBalance()
-        while True:
+        if self.kline and len(self.grid) < 1:
             self.grid_positions()
-            if len(self.kline) > 0:
-                self.array_grid(self.grid, float(self.kline['close']))
-                pos = self.is_position()
-                if float(self.kline['close']) > float(self.kline['open']) and self.to_buy == 0:
-                    self.position_px = self.grid_px
-                    self.to_buy = 1
-                elif float(self.kline['close']) < float(self.kline['open']) and self.to_buy == 1:
-                    self.to_buy = 0
-                if pos and self.balance[self.baseCoin] > pos.sz and self.order is None:
-                    self.sendTicker(round(pos.sz * float(self.kline['close']), 4), 'Sell', strftime('%Y%m%d%H%M%S'))
-                    self.getBalance()
-                elif pos and self.balance[self.baseCoin] < pos.sz and self.order is None:
-                    self.getBalance()
-                    if self.balance[self.quoteCoin] > self.qty * float(self.kline['close']):
-                        self.sendTicker(self.qty, 'Buy')
-                elif (pos is False and self.to_buy == 1 and float(self.kline['close']) > self.position_px
-                      and self.order is None):
-                    self.getBalance()
-                    if self.balance[self.quoteCoin] > self.qty * float(self.kline['close']):
-                        self.sendTicker(self.qty, 'Buy', strftime('%Y%m%d%H%M%S'))
-                        self.position_px = self.grid_px
-                if self.order and self.order['orderId'] == self.orderId:
-                    if self.order['orderLinkId'] and self.order['side'] == "Sell":
-                        self.save_order(self.order, active=False)
-                        pos.cTime = strftime('%Y%m%d%H%M%S')
-                        pos.is_active = False
-                        db.commit()
-                        self.order = None
-                    elif self.order['orderLinkId'] and self.order['side'] == "Buy":
-                        self.order['qty'] = float(self.order['qty']) - float(self.order['cumExecFee'])
-                        self.order['profit'] = float(self.order['avgPrice']) + (
-                                    float(self.order['avgPrice']) * self.percent / 100)
-                        self.order['grid_px'] = self.grid_px
-                        self.save_order(self.order, active=True)
-                        self.order = None
-                    else:
-                        self.save_order(self.order, active=False)
-                        self.order = None
-            await asyncio.sleep(1)
+        if self.kline and self.grid:
+            self.array_grid(self.grid, self.kline['close'])
+        pos = self.is_position()
+        if self.kline['close'] > self.kline['open'] and self.to_buy == 0:
+            self.position_px = self.grid_px
+            self.close_kline = self.kline['close']
+            self.to_buy = 1
+        elif self.kline['close'] < self.kline['open'] and self.to_buy == 1:
+            self.to_buy = 0
+        if pos and self.balance[self.baseCoin] > pos.sz / pos.px and self.order is False:
+            self.sendTicker(pos.sz / pos.px, 'Sell', strftime('bot_%Y%m%d%H%M%S'))
+        elif pos and self.balance[self.baseCoin] < pos.sz / pos.px and self.order is False:
+            print("Buy complete 1!")
+            self.sendTicker(self.min_qty * self.kline['close'], 'Buy')
+        elif (pos is False and self.balance[self.quoteCoin] > self.qty and self.to_buy == 1
+              and self.kline['close'] > self.position_px and self.order is False):
+            self.sendTicker(self.qty, 'Buy', strftime('bot_%Y%m%d%H%M%S'))
+            self.position_px = self.grid_px
+        if self.order and self.order['orderId'] == self.orderId:
+            if self.order and re.match(r'bot_+[0-9]+', self.order['orderLinkId']) and self.order['side'] == "Sell":
+                self.save_order(self.order, active=False)
+                pos.is_active = False
+                db.commit()
+                self.order = False
+            elif re.match(r'bot_+[0-9]+', self.order['orderLinkId']) and self.order['side'] == "Buy":
+                self.order['grid_px'] = self.grid_px
+                self.order['profit'] = float(self.order['avgPrice']) + (float(self.order['avgPrice']) / 100 * self.percent)
+                self.save_order(self.order, active=True)
+                self.order = False
+                exit()
+            else:
+                print("Bot complete 2!")
+                self.order['grid_px'] = self.grid_px
+                self.order['profit'] = self.order['avgPrice'] + (self.order['avgPrice'] / 100 * self.percent)
+                self.save_order(self.order, active=False)
+                self.order = False
+        elif self.order and self.order['orderId'] != self.orderId:
+            self.order = False
 
-    async def run(self):
-        self.logger.info("Bot is running!")
-        await asyncio.gather(self.check(), self.ws_public(), self.ws_private())
-
+    def start(self):
+        logger.info("Bot is started!")
+        self.getKline()
+        self.getOrder()
+        self.getWallet()
+        while True:
+            self.check()
+            sleep(1)
